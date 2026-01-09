@@ -1,0 +1,15 @@
+{
+  "name": "futuredate",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "start-a": "PORT=8000 SELF=localhost:8000 NAME=a node --env-file=.env src/index.js",
+    "start-b": "PORT=8001 SELF=localhost:8001 NAME=b node --env-file=.env src/index.js",
+    "start-c": "PORT=8002 SELF=localhost:8002 NAME=c node --env-file=.env src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

@@ -1,0 +1,2 @@
+- validate inputs to avoid large malicious payloads
+- enable immutability

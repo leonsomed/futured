@@ -1,0 +1,4 @@
+*.pem
+/state-txt
+/state
+.env
