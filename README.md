@@ -4,7 +4,7 @@ futured is only one part of the mechanism for a dead man's switch, it is not int
 
 futured is a replication service that interacts with a pool of identical nodes. Each node relays the encrypted state to other nodes. Each node is deployed with a known shared secret and it is the responsibility of the node maintainer to acquire the shared secret beforehand. The service can persist the latest state to a local file to support restarting to the last known state. This can be disabled to avoid writing files to disk. This local file mechanism is there only to support the case where all nodes happen to go down simultaneously, which should be practically impossible if the pool is setup correctly. For instance, using different cloud providers, mixing cloud and on-premise, and distributing across regions.
 
-futured supports node discovery thourgh state decryption. futured assumes all nodes are honest as long as they can provide valid encrypted content. If the shared secret is compromised then malicious nodes can control the full state of the network. Node operators would need to monitor for such an event and deploy with a new secret.
+futured supports node discovery through state decryption. futured assumes all nodes are honest as long as they can provide valid encrypted content. If the shared secret is compromised then malicious nodes can control the full state of the network. Node operators would need to monitor for such an event and deploy with a new secret.
 
 ## Immutability
 
@@ -12,11 +12,11 @@ A layer of resiliency consists of enabling namespace immutability so an attacker
 
 ## Disclaimer
 
-It is important to consider that futured is a simple HTTP service and as such it is vulnerable to numerous attacks that can reveal sensitive information. Such as the hash (before the configured future date), the target date, and the secret associated to the hash. Of course, this would only happen if the attacker is sophisticated enough. As such you should use under your own resposability. Realistically speaking, this could only happen if someone happens to get physical or remote access to the machine. This most likely could happen by court mandate or when running in an insecure cloud. Also, access could be achieved via some vulnerability, however, to mitigate against that the service relies only on native modules.
+It is important to consider that futured is a simple HTTP service and as such it is vulnerable to numerous attacks that can reveal sensitive information. Such as the hash (before the configured future date), the target date, and the secret associated to the hash. Of course, this would only happen if the attacker is sophisticated enough. As such you should use it under your own responsability. Realistically speaking, this could only happen if someone happens to get physical or remote access to the machine. This most likely could happen by court mandate or when running in an insecure cloud. Also, access could be achieved via some vulnerability, however, to mitigate against that the service relies only on native modules.
 
-futured was designed to be only one part of a dead man's switch, it is not enough for an attacker to gain access to this service, they would also need to have access to the encrypted content that is protected by the time-based hash returned by this service. That content is not stored or referenced in this service at all. Therefor plan your strategy accordingly.
+futured was designed to be only one part of a dead man's switch, it is not enough for an attacker to gain access to this service, they would also need to have access to the encrypted content that is protected by the time-based hash returned by this service. That content is not stored or referenced in this service at all. Therefore plan your strategy accordingly.
 
-## Possible setup
+## Possible use cases
 
 - App connects to futured service thourgh Tor or a secure VPN and requests today's date from start of day like: 2026-01-15T00:00:00.000Z
 - App decrypts file with hash received to reveal a script and media files
@@ -63,3 +63,7 @@ If you are just testing you can just run the script:
 ```bash
 node --env-file=.env ./src/scripts/get-hash.js
 ```
+
+## How to decrypt content
+
+That is outside the scope of futured. You can do whatever you want with that hash, it can be a multi hash password. Maybe 3 hashes from different dates combined make up the encryption key for your use case. Maybe the hash is fed into a KDF, maybe a memorable 6 digit PIN and a hash are needed for decryption. The options are endless, just need to think through your use case and get creative.
