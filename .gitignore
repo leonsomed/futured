@@ -2,3 +2,4 @@
 /state-txt
 /state
 .env
+node_modules
