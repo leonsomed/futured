@@ -6,7 +6,7 @@ async function run() {
   console.log(`WARNING: PLEASE READ ⚠️
 - Make sure to generate these hashes in an airgap device.
 - Make sure to pass a secret and not a namespace.
-- Make sure to pass a an epoch timestamp not a string date.
+- Make sure to pass a an epoch timestamp as an integer in milliseconds valid to use for JavaScript's Date oject.
 
 Please enter a timestamp ie: 1768003215066`);
   let timestamp;
