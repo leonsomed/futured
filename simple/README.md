@@ -32,6 +32,19 @@ curl http://127.0.0.1:8000/hash \
 
 The response is `{"hash":"<64-character SHA-256 hex string>"}`.
 
+Send `Accept: text/plain` to receive just the hash without JSON or quotes:
+
+```bash
+curl http://127.0.0.1:8000/hash \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: text/plain' \
+  --data '{"namespace":"foo","timestamp":1767225600000}'
+```
+
+With this header, errors are plain text messages and unavailable hashes return
+the text `null`. Status codes are unchanged. JSON remains the default for other
+Accept values or when the header is omitted. The request body is always JSON.
+
 The hash follows the original project's formula:
 `SHA-256("<timestamp>:<secret>")`, encoded as lowercase hex. Timestamps are
 nonnegative integer Unix milliseconds and must be at or before the server's

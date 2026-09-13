@@ -24,9 +24,13 @@ if (
 const clients = new Map();
 
 const server = http.createServer(async (req, res) => {
+  const plainText = req.headers.accept?.trim().toLowerCase() === "text/plain";
   const reply = (status, body) => {
-    res.writeHead(status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(body));
+    res.writeHead(status, {
+      "Content-Type": plainText ? "text/plain; charset=utf-8" : "application/json",
+      "Vary": "Accept",
+    });
+    res.end(plainText ? (body?.hash ?? body?.error ?? "null") : JSON.stringify(body));
   };
   const ip = req.socket.remoteAddress;
   const now = performance.now();
