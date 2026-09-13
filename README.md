@@ -64,6 +64,37 @@ If you are just testing you can just run the script:
 node --env-file=.env ./src/scripts/get-hash.js
 ```
 
+## How to request a hash
+
+Send a JSON `POST` request to `/message` with type `HASH`, a configured namespace, and a Unix timestamp in **milliseconds**. The timestamp must have arrived according to the server's clock. Use the namespace name, not its secret.
+
+With the local instances above running, request the hash for `2026-01-01T00:00:00.000Z` in the sample `foo` namespace:
+
+```bash
+curl --insecure https://localhost:8000/message \
+  --header 'Content-Type: application/json' \
+  --data '{"type":"HASH","namespace":"foo","timestamp":1767225600000}'
+```
+
+`--data` makes this a POST request. `--insecure` is for the self-signed certificate used in local testing; omit it when connecting to a server with a trusted certificate.
+
+A successful response is a JSON object with a `hash` field containing the 64-character SHA-256 hex string:
+
+```json
+{ "hash": "<64-character SHA-256 hex string>" }
+```
+
+To request another date, convert it to milliseconds and send it as a JSON number:
+
+```bash
+timestamp=$(node -p 'new Date("2026-01-15T00:00:00.000Z").getTime()')
+curl --insecure https://localhost:8000/message \
+  --header 'Content-Type: application/json' \
+  --data "{\"type\":\"HASH\",\"namespace\":\"foo\",\"timestamp\":$timestamp}"
+```
+
+Replace `foo` with your configured namespace and use the exact timestamp used to generate the encryption hash. If the date is still in the future or the namespace does not exist, the server returns JSON `null` with HTTP status 200. For a future date, retry once that time has arrived.
+
 ## How to decrypt content
 
 That is outside the scope of futured. You can do whatever you want with that hash, it can be a multi hash password. Maybe 3 hashes from different dates combined make up the encryption key for your use case. Maybe the hash is fed into a KDF, maybe a memorable 6 digit PIN and a hash are needed for decryption. The options are endless, just need to think through your use case and get creative.
