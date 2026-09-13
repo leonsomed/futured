@@ -40,6 +40,15 @@ Unknown namespaces and future timestamps return HTTP 200 with JSON `null`, as in
 the original project. Malformed requests return 400; bodies over a few hundred bytes of text
 return 413. Only `POST /hash` is supported; other routes or methods return 404.
 
+Each IP can send up to five requests in a rolling one-second window. On each
+request, timestamps at least one second old are removed from that IP's array.
+If five timestamps remain, the request receives HTTP 429 with `Retry-After: 1`;
+otherwise, its timestamp is recorded. Invalid requests and unsupported routes
+also count; throttled requests do not. Limits are kept in memory and reset on
+restart. IP entries remain in the map; there is no cleanup interval.
+The IP comes from the socket; forwarded IP headers are ignored. Behind a reverse
+proxy, clients sharing the proxy's IP share this limit.
+
 ## How to generate a hash to encrypt your files
 
 It is best to run this in an airgap device. You don't really need to have the whole codebase, simply referenace the implementation of how hashes are generated, here is an example:

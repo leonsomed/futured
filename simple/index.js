@@ -20,11 +20,24 @@ if (
   );
 }
 
+// Keep the timestamps of up to five requests per IP in the last second.
+const clients = new Map();
+
 const server = http.createServer(async (req, res) => {
   const reply = (status, body) => {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
   };
+  const ip = req.socket.remoteAddress;
+  const now = performance.now();
+  const timestamps = (clients.get(ip) ?? []).filter(time => now - time < 1000);
+  clients.set(ip, timestamps);
+  if (timestamps.length >= 5) {
+    res.setHeader("Retry-After", 1);
+    return reply(429, { error: "Too many requests" });
+  }
+  timestamps.push(now);
+
   if (req.method !== "POST" || req.url !== "/hash") {
     return reply(404, { error: "Use POST /hash" });
   }
