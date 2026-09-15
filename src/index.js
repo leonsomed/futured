@@ -109,7 +109,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     reply(200, {
-      hash: hmacHash(namespaces[namespace], timestamp),
+      hash: await hmacHash(namespaces[namespace], timestamp),
     });
   } catch {
     reply(400, { error: "Invalid request" });
