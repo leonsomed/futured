@@ -1,179 +1,118 @@
-const { MESSAGE_TYPES } = require("./utils");
-const { startServer } = require("./server");
-const { postMessage } = require("./client");
-const {
-  getState,
-  getEncryptedState,
-  initState,
-  processPeerState,
-} = require("./state");
-const { getTimeHash } = require("./crypto");
+const http = require("node:http");
+const { createHmac } = require("node:crypto");
 
-if (!process.env.SELF) {
-  throw new Error("Missing SELF env variable");
+const namespaces = {
+  foo: Buffer.from(
+    "15a5b7f6348854117d94cfd6e2e693dd1dc1810ef95450601e8711314ba0be3b",
+    "hex",
+  ),
+};
+
+async function hmacHash(secret, timestamp) {
+  const hmac = createHmac("sha256", secret);
+  hmac.update(timestamp.toString());
+  return hmac.digest("hex");
 }
 
-const SYNC_INTERVAL = 60 * 60 * 1000;
-
-async function handleMessageServer(message, onReponse) {
-  const state = getState();
-
-  switch (message.type) {
-    case MESSAGE_TYPES.SYNC_CHECK: {
-      if (message.version === state.version) {
-        onReponse({ type: MESSAGE_TYPES.OK });
-        break;
-      }
-
-      if (message.version > state.version) {
-        onReponse({ type: MESSAGE_TYPES.SYNC_PULL });
-        break;
-      }
-
-      const encryptedState = await getEncryptedState();
-
-      if (encryptedState) {
-        onReponse({
-          type: MESSAGE_TYPES.SYNC_PUSH,
-          state: encryptedState,
-        });
-      }
-      break;
-    }
-    case MESSAGE_TYPES.SYNC_PULL: {
-      const encryptedState = await getEncryptedState();
-
-      if (encryptedState) {
-        onReponse({
-          type: MESSAGE_TYPES.SYNC_PUSH,
-          state: encryptedState,
-        });
-      }
-      break;
-    }
-    case MESSAGE_TYPES.SYNC_PUSH: {
-      await processPeerState(message.state);
-
-      onReponse({ type: MESSAGE_TYPES.OK });
-      break;
-    }
-    case MESSAGE_TYPES.OK: {
-      onReponse({ type: MESSAGE_TYPES.OK });
-      break;
-    }
-    case MESSAGE_TYPES.HASH: {
-      const secret = state.namespaces[message.namespace];
-
-      if (!secret || message.timestamp < 0 || message.timestamp > Date.now()) {
-        onReponse(null);
-        break;
-      }
-
-      const hash = getTimeHash(message.timestamp, secret);
-      onReponse({ hash });
-      break;
-    }
-    default:
-      break;
-  }
+if (
+  !namespaces ||
+  typeof namespaces !== "object" ||
+  Array.isArray(namespaces) ||
+  Object.values(namespaces).some(
+    (secret) => !Buffer.isBuffer(secret) || secret.length < 32,
+  )
+) {
+  throw new Error("namespaces.json must map namespace names to Buffer secrets");
 }
 
-async function handleClientMessage(message) {
-  switch (message.type) {
-    case MESSAGE_TYPES.SYNC_PULL: {
-      const encryptedState = await getEncryptedState();
+// Keep the timestamps of up to five requests per IP in the last second.
+const clients = new Map();
 
-      if (encryptedState) {
-        return {
-          type: MESSAGE_TYPES.SYNC_PUSH,
-          state: encryptedState,
-        };
-      }
-
-      return { type: MESSAGE_TYPES.OK };
-    }
-    case MESSAGE_TYPES.SYNC_PUSH: {
-      await processPeerState(message.state);
-
-      return { type: MESSAGE_TYPES.OK };
-    }
-    case MESSAGE_TYPES.OK: {
-      return { type: MESSAGE_TYPES.OK };
-    }
-    default:
-      throw new Error("not supported");
-  }
-}
-
-let _server;
-
-async function init() {
-  await initState();
-  server = await startServer(handleMessageServer);
-
-  const runInterval = async () => {
-    const state = getState();
-
-    for (const peer of Object.keys(state.peers)) {
-      if (process.env.SELF === peer) {
-        continue;
-      }
-      const [host, port] = peer.split(":");
-
-      try {
-        let nextMessage = {
-          type: MESSAGE_TYPES.SYNC_CHECK,
-          version: state.version,
-        };
-
-        while (true) {
-          const response = await postMessage(
-            { host, port: parseInt(port, 10) },
-            nextMessage,
-          );
-          nextMessage = await handleClientMessage(response);
-
-          if (nextMessage.type === MESSAGE_TYPES.OK) {
-            break;
-          }
-        }
-      } catch (e) {
-        if (e.code === "ECONNREFUSED") {
-          console.debug(`peer not available ${peer}`);
-          continue;
-        }
-        console.warn(`Error connecting to peer ${peer}`);
-        console.error(e);
-      }
-    }
+const server = http.createServer(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Expose-Headers", "Retry-After");
+  const plainText = req.headers.accept.includes("text/plain");
+  const reply = (status, body) => {
+    res.writeHead(status, {
+      "Content-Type": plainText
+        ? "text/plain; charset=utf-8"
+        : "application/json",
+      Vary: "Accept",
+    });
+    res.end(
+      plainText ? (body?.hash ?? body?.error ?? "null") : JSON.stringify(body),
+    );
   };
+  const ip = req.socket.remoteAddress;
+  const now = performance.now();
+  const timestamps = (clients.get(ip) ?? []).filter(
+    (time) => now - time < 1000,
+  );
+  clients.set(ip, timestamps);
+  if (timestamps.length >= 5) {
+    res.setHeader("Retry-After", 1);
+    return reply(429, { error: "Too many requests" });
+  }
+  timestamps.push(now);
 
-  setInterval(runInterval, SYNC_INTERVAL);
-  runInterval();
-}
+  if (req.method === "OPTIONS" && req.url === "/hash") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers":
+        req.headers["access-control-request-headers"] ?? "Content-Type, Accept",
+      Vary: "Access-Control-Request-Headers",
+    });
+    return res.end();
+  }
 
-process.on("SIGINT", async () => {
-  console.log("User initiated shutdown (SIGINT)");
-  await _server?.close();
-  process.exit(0);
+  if (req.method !== "POST" || req.url !== "/hash") {
+    return reply(404, { error: "Use POST /hash" });
+  }
+
+  try {
+    let body = "";
+    for await (const chunk of req) {
+      body += chunk;
+      if (body.length > 200) return reply(413, { error: "Request too large" });
+    }
+
+    let namespace = "";
+    let timestamp = 0;
+    try {
+      const json = JSON.parse(body) ?? {};
+      namespace = json.namespace;
+      timestamp = json.timestamp;
+    } catch {
+      return reply(400, {
+        error: "Body needs to be valid JSON",
+      });
+    }
+
+    if (
+      typeof namespace !== "string" ||
+      !Number.isSafeInteger(timestamp) ||
+      timestamp < 0
+    ) {
+      return reply(400, {
+        error:
+          "Provide a namespace and nonnegative integer timestamp in milliseconds",
+      });
+    }
+
+    if (!Object.hasOwn(namespaces, namespace) || timestamp > Date.now()) {
+      return reply(200, null);
+    }
+
+    reply(200, {
+      hash: hmacHash(namespaces[namespace], timestamp),
+    });
+  } catch {
+    reply(400, { error: "Invalid request" });
+  }
 });
 
-process.on("SIGTERM", async () => {
-  console.log("Process initiated shutdown (SIGTERM)");
-  await _server?.close();
-  process.exit(0);
+server.listen(process.env.PORT ?? 8000, process.env.HOST ?? "127.0.0.1", () => {
+  console.log(
+    `Listening on http://${server.address().address}:${server.address().port}`,
+  );
 });
-
-process.on("uncaughtException", async (e) => {
-  console.error("uncaughtException", e);
-  await _server?.close();
-  process.exit(1);
-});
-
-process.on("unhandledRejection", async (e) => {
-  console.error("unhandledRejection", e);
-  await _server?.close();
-  process.exit(1);
-});
-
-init();

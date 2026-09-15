@@ -1,100 +1,74 @@
-futured discloses secrets when a target time arrives. Its job is to use secrets to generate time-based hashes. The rational is that a user wants to reveal a secret to the public, but only at a certain time. It is perfect for a [dead man's switch](https://en.wikipedia.org/wiki/Dead_man%27s_switch).
+# Simple futured
 
-futured is only one part of the mechanism for a dead man's switch, it is not intended to store or serve actual content, instead it serves time-based hashes salted with a secret. The hashes can be used as decryption keys for content hosted somewhere else. The service is extremly simple, and has no dependencies to minimize attack surface.
+A standalone, dependency-free Node.js server with one operation: `POST /hash`.
+Requires Node.js 22 or newer.
 
-futured is a replication service that interacts with a pool of identical nodes. Each node relays the encrypted state to other nodes. Each node is deployed with a known shared secret and it is the responsibility of the node maintainer to acquire the shared secret beforehand. The service can persist the latest state to a local file to support restarting to the last known state. This can be disabled to avoid writing files to disk. This local file mechanism is there only to support the case where all nodes happen to go down simultaneously, which should be practically impossible if the pool is setup correctly. For instance, using different cloud providers, mixing cloud and on-premise, and distributing across regions.
-
-futured supports node discovery through state decryption. futured assumes all nodes are honest as long as they can provide valid encrypted content. If the shared secret is compromised then malicious nodes can control the full state of the network. Node operators would need to monitor for such an event and deploy with a new secret.
-
-## Immutability
-
-A layer of resiliency consists of enabling namespace immutability so an attacker would need to control all nodes to shut down the service. The way it works is that if immutability is enabled then a namespace cannot be changed. Nodes will continue to accept the state changes, but they will discard any state that would result in overriding an existing namespace. However, making node state immutable means that it would be impossible to remove content that you no longer want to expose. This is the case if you happen to change the target date and no longer want the prevous date to work. This is a tradeoff and futured offers this as an opt-in feature. The node maintainer sends signals to the service to indicate when immutability should be disabled. Once disabled if a new signal hasn't been received in x amount of time, then the node becomes immutable again. The signal is a signed timestamp with GPG. Nodes will have the public key of the node maintainer to verify the signature. The rational is the signal contains a timestamp, this timestamp indicates when immutability will be disabled so it must be a future date. Then there is a signature field which is the signed timestamp with the authors private key. Nodes can verify that the signature belongs to the public key they have on disk. This way the attacker would need to control every single node to shut down the service.
-
-## Disclaimer
-
-It is important to consider that futured is a simple HTTP service and as such it is vulnerable to numerous attacks that can reveal sensitive information. Such as the hash (before the configured future date), the target date, and the secret associated to the hash. Of course, this would only happen if the attacker is sophisticated enough. As such you should use it under your own responsability. Realistically speaking, this could only happen if someone happens to get physical or remote access to the machine. This most likely could happen by court mandate or when running in an insecure cloud. Also, access could be achieved via some vulnerability, however, to mitigate against that the service relies only on native modules.
-
-futured was designed to be only one part of a dead man's switch, it is not enough for an attacker to gain access to this service, they would also need to have access to the encrypted content that is protected by the time-based hash returned by this service. That content is not stored or referenced in this service at all. Therefore plan your strategy accordingly.
-
-## Possible use cases
-
-- App connects to futured service thourgh Tor or a secure VPN and requests today's date from start of day like: 2026-01-15T00:00:00.000Z
-- App decrypts file with hash received to reveal a script and media files
-- App executes script with instructions to send email with attachments that were also decrypted (change this action for whatever you need)
-- App deletes decrypted content
-
-You can get creative and might be able to compromise on certain steps depending on your treat model. This is very helpful for inheritance purposes if there happens to be
-something sensitive you wish to share such as the location of your BIP 39 seed phrase backup along with other detailed instructions.
-
-You can also combine the hash with a known password that way you give a person a password and they can only decrypt the content when the target date has arrived. Of course you would need to explain it to them or provide some sort of app that will handle the decryption process. Keep in mind that the more complexity you add the higher the chances your dead man trigger won't actually trigger.
-
-## Getting started
-
-For local development and testing set it up as follows:
+Edit `namespaces` to map namespace names directly to secrets. Assign a cryptographically secure random 32 byte buffer.
 
 ```bash
-openssl req -newkey rsa:2048 -new -nodes -x509 -days 10000 -keyout server-key.pem -out server-cert.pem
-node ./src/scripts/create-key.js
-mv .env.new .env
-# echo "\nDISABLE_WRITE=true" >> .env # enable only if you want to disable writing to disk
-node --env-file=.env ./src/scripts/create-state.js
-node --env-file=.env ./src/scripts/encrypt-state.js
-
-# setting up 3 local instances
-PORT=8000 SELF=localhost:8000 NAME=a node --env-file=.env src/index.js
-PORT=8001 SELF=localhost:8001 NAME=b node --env-file=.env src/index.js
-PORT=8002 SELF=localhost:8002 NAME=c node --env-file=.env src/index.js
+node simple/index.js
 ```
+
+## How to request a hash from the API
+
+The default address is `http://127.0.0.1:8000`. Set `HOST` and `PORT` to change it. To request a hash:
+
+```bash
+namespace=foo
+timestamp=$(node -p 'new Date("2026-01-15T00:00:00.000Z").getTime()')
+curl http://127.0.0.1:8000/hash \
+  --header 'Content-Type: application/json' \
+  --data "{\"namespace\":\"$namespace\",\"timestamp\":$timestamp}"
+```
+
+The response is `{"hash":"<64-character SHA-256 hex string>"}`.
+
+Send `Accept: text/plain` to receive just the hash without JSON or quotes:
+
+```bash
+curl http://127.0.0.1:8000/hash \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: text/plain' \
+  --data '{"namespace":"foo","timestamp":1767225600000}'
+```
+
+With this header, errors are plain text messages and unavailable hashes return
+the text `null`. Status codes are unchanged. JSON remains the default for other
+Accept values or when the header is omitted. The request body is always JSON.
+
+The hash follows the original project's formula:
+`SHA-256("<timestamp>:<secret>")`, encoded as lowercase hex. Timestamps are
+nonnegative integer Unix milliseconds and must be at or before the server's
+current time. Use the exact timestamp and secret used to encrypt your content.
+Unknown namespaces and future timestamps return HTTP 200 with JSON `null`, as in
+the original project. Malformed requests return 400; bodies over a few hundred bytes of text
+return 413. `POST /hash` and its `OPTIONS` preflight are supported; other routes
+or methods return 404.
+
+CORS allows any origin with `Access-Control-Allow-Origin: *`. Preflight requests
+allow POST and any requested headers. Browsers can also read `Retry-After` on
+throttled responses. Cross-origin requests should omit credentials. Preflight
+requests count toward the same per-IP limit.
+
+Each IP can send up to five requests in a rolling one-second window. On each
+request, timestamps at least one second old are removed from that IP's array.
+If five timestamps remain, the request receives HTTP 429 with `Retry-After: 1`;
+otherwise, its timestamp is recorded. Invalid requests and unsupported routes
+also count; throttled requests do not. Limits are kept in memory and reset on
+restart. IP entries remain in the map; there is no cleanup interval.
+The IP comes from the socket; forwarded IP headers are ignored. Behind a reverse
+proxy, clients sharing the proxy's IP share this limit.
 
 ## How to generate a hash to encrypt your files
 
 It is best to run this in an airgap device. You don't really need to have the whole codebase, simply referenace the implementation of how hashes are generated, here is an example:
 
 ```js
-// put this script in hash.js
-console.log(require("node:crypto").hash("sha256", `${new Date('2026-01-01T00:00:00.000Z').getTime()}:your_secret`));
-
-// run it in a shell
-node hash.js
+node -p 'require("node:crypto").createHmac("sha256", "your_secret").update(new Date("2026-01-01T00:00:00.000Z").getTime().toString()).digest("hex")'
 ```
 
-If you are just testing you can just run the script:
+## How to generate a secret for a namespace
 
-```bash
-node --env-file=.env ./src/scripts/get-hash.js
+```js
+node -p 'const arr = require("node:crypto").getRandomValues(new Uint8Array(32));Buffer.from(arr).toString("hex")'
 ```
-
-## How to request a hash
-
-Send a JSON `POST` request to `/message` with type `HASH`, a configured namespace, and a Unix timestamp in **milliseconds**. The timestamp must have arrived according to the server's clock. Use the namespace name, not its secret.
-
-With the local instances above running, request the hash for `2026-01-01T00:00:00.000Z` in the sample `foo` namespace:
-
-```bash
-curl --insecure https://localhost:8000/message \
-  --header 'Content-Type: application/json' \
-  --data '{"type":"HASH","namespace":"foo","timestamp":1767225600000}'
-```
-
-`--data` makes this a POST request. `--insecure` is for the self-signed certificate used in local testing; omit it when connecting to a server with a trusted certificate.
-
-A successful response is a JSON object with a `hash` field containing the 64-character SHA-256 hex string:
-
-```json
-{ "hash": "<64-character SHA-256 hex string>" }
-```
-
-To request another date, convert it to milliseconds and send it as a JSON number:
-
-```bash
-timestamp=$(node -p 'new Date("2026-01-15T00:00:00.000Z").getTime()')
-curl --insecure https://localhost:8000/message \
-  --header 'Content-Type: application/json' \
-  --data "{\"type\":\"HASH\",\"namespace\":\"foo\",\"timestamp\":$timestamp}"
-```
-
-Replace `foo` with your configured namespace and use the exact timestamp used to generate the encryption hash. If the date is still in the future or the namespace does not exist, the server returns JSON `null` with HTTP status 200. For a future date, retry once that time has arrived.
-
-## How to decrypt content
-
-That is outside the scope of futured. You can do whatever you want with that hash, it can be a multi hash password. Maybe 3 hashes from different dates combined make up the encryption key for your use case. Maybe the hash is fed into a KDF, maybe a memorable 6 digit PIN and a hash are needed for decryption. The options are endless, just need to think through your use case and get creative.
