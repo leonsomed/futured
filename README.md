@@ -3,10 +3,15 @@
 A standalone, dependency-free Node.js server with one operation: `POST /hash`.
 Requires Node.js 22 or newer.
 
-Edit `namespaces` to map namespace names directly to secrets. Assign a cryptographically secure random 32 byte buffer.
+Edit the root `namespaces.json` file to map namespace names to secrets. Each secret
+must be a hex string representing at least 32 bytes: at least 64 hex characters,
+an even number of characters, and no `0x` prefix. Uppercase and lowercase hex are
+accepted. Secrets are decoded to buffers once at startup and reused for hashing. Invalid values stop the
+server at startup; restart the server after changing the file. Replace the example
+secret with a cryptographically secure random secret before use.
 
 ```bash
-node simple/index.js
+npm start
 ```
 
 ## How to request a hash from the API

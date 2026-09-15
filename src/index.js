@@ -1,12 +1,7 @@
 const http = require("node:http");
 const { createHmac } = require("node:crypto");
 
-const namespaces = {
-  foo: Buffer.from(
-    "15a5b7f6348854117d94cfd6e2e693dd1dc1810ef95450601e8711314ba0be3b",
-    "hex",
-  ),
-};
+const namespaceSecrets = require("../namespaces.json");
 
 async function hmacHash(secret, timestamp) {
   const hmac = createHmac("sha256", secret);
@@ -15,15 +10,25 @@ async function hmacHash(secret, timestamp) {
 }
 
 if (
-  !namespaces ||
-  typeof namespaces !== "object" ||
-  Array.isArray(namespaces) ||
-  Object.values(namespaces).some(
-    (secret) => !Buffer.isBuffer(secret) || secret.length < 32,
+  !namespaceSecrets ||
+  typeof namespaceSecrets !== "object" ||
+  Array.isArray(namespaceSecrets) ||
+  Object.values(namespaceSecrets).some(
+    (secret) =>
+      typeof secret !== "string" || !/^(?:[0-9a-fA-F]{2}){32,}$/.test(secret),
   )
 ) {
-  throw new Error("namespaces.json must map namespace names to Buffer secrets");
+  throw new Error(
+    "namespaces.json must map namespace names to hex strings of at least 32 bytes (64 hex characters, with an even length and no 0x prefix)",
+  );
 }
+
+const namespaces = Object.fromEntries(
+  Object.entries(namespaceSecrets).map(([name, secret]) => [
+    name,
+    Buffer.from(secret, "hex"),
+  ]),
+);
 
 // Keep the timestamps of up to five requests per IP in the last second.
 const clients = new Map();
